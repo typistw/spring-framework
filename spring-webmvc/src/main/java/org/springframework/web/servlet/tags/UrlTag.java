@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,11 +18,12 @@ package org.springframework.web.servlet.tags;
 
 import java.io.IOException;
 import java.nio.charset.UnsupportedCharsetException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+
 import javax.servlet.ServletRequest;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -38,7 +39,7 @@ import org.springframework.web.util.TagUtils;
 import org.springframework.web.util.UriUtils;
 
 /**
- * The {@code <url>} tag creates URLs. Modeled after the JSTL c:url tag with
+ * The {@code <url>} tag creates URLs. Modeled after the JSTL {@code c:url} tag with
  * backwards compatibility in mind.
  *
  * <p>Enhancements to the JSTL functionality include:
@@ -166,7 +167,7 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 
 
 	/**
-	 * Sets the value of the URL.
+	 * Set the value of the URL.
 	 */
 	public void setValue(String value) {
 		if (value.contains(URL_TYPE_ABSOLUTE)) {
@@ -184,7 +185,8 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 	}
 
 	/**
-	 * Set the context path for the URL. Defaults to the current context
+	 * Set the context path for the URL.
+	 * Defaults to the current context.
 	 */
 	public void setContext(String context) {
 		if (context.startsWith("/")) {
@@ -227,7 +229,7 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 
 	@Override
 	public int doStartTagInternal() throws JspException {
-		this.params = new LinkedList<>();
+		this.params = new ArrayList<>();
 		this.templateParams = new HashSet<>();
 		return EVAL_BODY_INCLUDE;
 	}
@@ -276,7 +278,7 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 			}
 			else {
 				if (this.context.endsWith("/")) {
-					url.append(this.context.substring(0, this.context.length() - 1));
+					url.append(this.context, 0, this.context.length() - 1);
 				}
 				else {
 					url.append(this.context);
@@ -361,7 +363,8 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 				usedParams.add(param.getName());
 				String value = param.getValue();
 				try {
-					uri = uri.replace(template, (value != null ? UriUtils.encodePath(value, encoding) : ""));
+					uri = StringUtils.replace(uri, template,
+							(value != null ? UriUtils.encodePath(value, encoding) : ""));
 				}
 				catch (UnsupportedCharsetException ex) {
 					throw new JspException(ex);
@@ -373,8 +376,8 @@ public class UrlTag extends HtmlEscapingAwareTag implements ParamAware {
 					usedParams.add(param.getName());
 					String value = param.getValue();
 					try {
-						uri = uri.replace(template,
-								(value != null ? UriUtils.encodePathSegment(param.getValue(), encoding) : ""));
+						uri = StringUtils.replace(uri, template,
+								(value != null ? UriUtils.encodePathSegment(value, encoding) : ""));
 					}
 					catch (UnsupportedCharsetException ex) {
 						throw new JspException(ex);

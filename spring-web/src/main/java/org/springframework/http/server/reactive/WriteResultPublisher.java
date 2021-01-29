@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,9 +24,9 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.core.publisher.Operators;
 
+import org.springframework.core.log.LogDelegateFactory;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
-import org.springframework.util.log.LogUtils;
 
 /**
  * Publisher returned from {@link ServerHttpResponse#writeWith(Publisher)}.
@@ -40,12 +40,12 @@ class WriteResultPublisher implements Publisher<Void> {
 
 	/**
 	 * Special logger for debugging Reactive Streams signals.
-	 * @see LogUtils#getHiddenLog(Class)
+	 * @see LogDelegateFactory#getHiddenLog(Class)
 	 * @see AbstractListenerReadPublisher#rsReadLogger
 	 * @see AbstractListenerWriteProcessor#rsWriteLogger
 	 * @see AbstractListenerWriteFlushProcessor#rsWriteFlushLogger
 	 */
-	private static final Log rsWriteResultLogger = LogUtils.getHiddenLog(WriteResultPublisher.class);
+	private static final Log rsWriteResultLogger = LogDelegateFactory.getHiddenLog(WriteResultPublisher.class);
 
 
 	private final AtomicReference<State> state = new AtomicReference<>(State.UNSUBSCRIBED);
@@ -175,10 +175,16 @@ class WriteResultPublisher implements Publisher<Void> {
 			@Override
 			void publishComplete(WriteResultPublisher publisher) {
 				publisher.completedBeforeSubscribed = true;
+				if(State.SUBSCRIBED.equals(publisher.state.get())) {
+					publisher.state.get().publishComplete(publisher);
+				}
 			}
 			@Override
 			void publishError(WriteResultPublisher publisher, Throwable ex) {
 				publisher.errorBeforeSubscribed = ex;
+				if(State.SUBSCRIBED.equals(publisher.state.get())) {
+					publisher.state.get().publishError(publisher, ex);
+				}
 			}
 		},
 
@@ -190,10 +196,16 @@ class WriteResultPublisher implements Publisher<Void> {
 			@Override
 			void publishComplete(WriteResultPublisher publisher) {
 				publisher.completedBeforeSubscribed = true;
+				if(State.SUBSCRIBED.equals(publisher.state.get())) {
+					publisher.state.get().publishComplete(publisher);
+				}
 			}
 			@Override
 			void publishError(WriteResultPublisher publisher, Throwable ex) {
 				publisher.errorBeforeSubscribed = ex;
+				if(State.SUBSCRIBED.equals(publisher.state.get())) {
+					publisher.state.get().publishError(publisher, ex);
+				}
 			}
 		},
 

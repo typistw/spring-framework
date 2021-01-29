@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -45,7 +45,7 @@ public class BeanFactoryAdvisorRetrievalHelper {
 	private final ConfigurableListableBeanFactory beanFactory;
 
 	@Nullable
-	private String[] cachedAdvisorBeanNames;
+	private volatile String[] cachedAdvisorBeanNames;
 
 
 	/**
@@ -66,16 +66,13 @@ public class BeanFactoryAdvisorRetrievalHelper {
 	 */
 	public List<Advisor> findAdvisorBeans() {
 		// Determine list of advisor bean names, if not cached already.
-		String[] advisorNames = null;
-		synchronized (this) {
-			advisorNames = this.cachedAdvisorBeanNames;
-			if (advisorNames == null) {
-				// Do not initialize FactoryBeans here: We need to leave all regular beans
-				// uninitialized to let the auto-proxy creator apply to them!
-				advisorNames = BeanFactoryUtils.beanNamesForTypeIncludingAncestors(
-						this.beanFactory, Advisor.class, true, false);
-				this.cachedAdvisorBeanNames = advisorNames;
-			}
+		String[] advisorNames = this.cachedAdvisorBeanNames;
+		if (advisorNames == null) {
+			// Do not initialize FactoryBeans here: We need to leave all regular beans
+			// uninitialized to let the auto-proxy creator apply to them!
+			advisorNames = BeanFactoryUtils.beanNamesForTypeIncludingAncestors(
+					this.beanFactory, Advisor.class, true, false);
+			this.cachedAdvisorBeanNames = advisorNames;
 		}
 		if (advisorNames.length == 0) {
 			return new ArrayList<>();
@@ -85,8 +82,8 @@ public class BeanFactoryAdvisorRetrievalHelper {
 		for (String name : advisorNames) {
 			if (isEligibleBean(name)) {
 				if (this.beanFactory.isCurrentlyInCreation(name)) {
-					if (logger.isDebugEnabled()) {
-						logger.debug("Skipping currently created advisor '" + name + "'");
+					if (logger.isTraceEnabled()) {
+						logger.trace("Skipping currently created advisor '" + name + "'");
 					}
 				}
 				else {
@@ -99,8 +96,8 @@ public class BeanFactoryAdvisorRetrievalHelper {
 							BeanCreationException bce = (BeanCreationException) rootCause;
 							String bceBeanName = bce.getBeanName();
 							if (bceBeanName != null && this.beanFactory.isCurrentlyInCreation(bceBeanName)) {
-								if (logger.isDebugEnabled()) {
-									logger.debug("Skipping advisor '" + name +
+								if (logger.isTraceEnabled()) {
+									logger.trace("Skipping advisor '" + name +
 											"' with dependency on currently created bean: " + ex.getMessage());
 								}
 								// Ignore: indicates a reference back to the bean we're trying to advise.

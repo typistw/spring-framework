@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
@@ -33,11 +34,13 @@ import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.DefaultParameterNameDiscoverer;
+import org.springframework.core.KotlinDetector;
 import org.springframework.core.MethodIntrospector;
 import org.springframework.core.ParameterNameDiscoverer;
 import org.springframework.core.ReactiveAdapterRegistry;
-import org.springframework.core.annotation.AnnotationAwareOrderComparator;
-import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.SpringProperties;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.log.LogFormatUtils;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.http.converter.ByteArrayHttpMessageConverter;
@@ -73,7 +76,6 @@ import org.springframework.web.method.annotation.ErrorsMethodArgumentResolver;
 import org.springframework.web.method.annotation.ExpressionValueMethodArgumentResolver;
 import org.springframework.web.method.annotation.InitBinderDataBinderFactory;
 import org.springframework.web.method.annotation.MapMethodProcessor;
-import org.springframework.web.method.annotation.ModelAttributeMethodProcessor;
 import org.springframework.web.method.annotation.ModelFactory;
 import org.springframework.web.method.annotation.ModelMethodProcessor;
 import org.springframework.web.method.annotation.RequestHeaderMapMethodArgumentResolver;
@@ -98,7 +100,7 @@ import org.springframework.web.util.WebUtils;
 
 /**
  * Extension of {@link AbstractHandlerMethodAdapter} that supports
- * {@link RequestMapping} annotated {@code HandlerMethod RequestMapping} annotated {@code HandlerMethods}.
+ * {@link RequestMapping @RequestMapping} annotated {@link HandlerMethod HandlerMethods}.
  *
  * <p>Support for custom argument and return value types can be added via
  * {@link #setCustomArgumentResolvers} and {@link #setCustomReturnValueHandlers},
@@ -107,12 +109,34 @@ import org.springframework.web.util.WebUtils;
  *
  * @author Rossen Stoyanchev
  * @author Juergen Hoeller
+ * @author Sebastien Deleuze
  * @since 3.1
  * @see HandlerMethodArgumentResolver
  * @see HandlerMethodReturnValueHandler
  */
 public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		implements BeanFactoryAware, InitializingBean {
+
+	/**
+	 * Boolean flag controlled by a {@code spring.xml.ignore} system property that instructs Spring to
+	 * ignore XML, i.e. to not initialize the XML-related infrastructure.
+	 * <p>The default is "false".
+	 */
+	private static final boolean shouldIgnoreXml = SpringProperties.getFlag("spring.xml.ignore");
+
+	/**
+	 * MethodFilter that matches {@link InitBinder @InitBinder} methods.
+	 */
+	public static final MethodFilter INIT_BINDER_METHODS = method ->
+			AnnotatedElementUtils.hasAnnotation(method, InitBinder.class);
+
+	/**
+	 * MethodFilter that matches {@link ModelAttribute @ModelAttribute} methods.
+	 */
+	public static final MethodFilter MODEL_ATTRIBUTE_METHODS = method ->
+			(!AnnotatedElementUtils.hasAnnotation(method, RequestMapping.class) &&
+					AnnotatedElementUtils.hasAnnotation(method, ModelAttribute.class));
+
 
 	@Nullable
 	private List<HandlerMethodArgumentResolver> customArgumentResolvers;
@@ -136,7 +160,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 
 	private List<HttpMessageConverter<?>> messageConverters;
 
-	private List<Object> requestResponseBodyAdvice = new ArrayList<>();
+	private final List<Object> requestResponseBodyAdvice = new ArrayList<>();
 
 	@Nullable
 	private WebBindingInitializer webBindingInitializer;
@@ -165,7 +189,6 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 	@Nullable
 	private ConfigurableBeanFactory beanFactory;
 
-
 	private final Map<Class<?>, SessionAttributesHandler> sessionAttributesHandlerCache = new ConcurrentHashMap<>(64);
 
 	private final Map<Class<?>, Set<Method>> initBinderCache = new ConcurrentHashMap<>(64);
@@ -178,17 +201,16 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 
 
 	public RequestMappingHandlerAdapter() {
-		StringHttpMessageConverter stringHttpMessageConverter = new StringHttpMessageConverter();
-		stringHttpMessageConverter.setWriteAcceptCharset(false);  // see SPR-7316
-
 		this.messageConverters = new ArrayList<>(4);
 		this.messageConverters.add(new ByteArrayHttpMessageConverter());
-		this.messageConverters.add(stringHttpMessageConverter);
-		try {
-			this.messageConverters.add(new SourceHttpMessageConverter<>());
-		}
-		catch (Error err) {
-			// Ignore when no TransformerFactory implementation is available
+		this.messageConverters.add(new StringHttpMessageConverter());
+		if (!shouldIgnoreXml) {
+			try {
+				this.messageConverters.add(new SourceHttpMessageConverter<>());
+			}
+			catch (Error err) {
+				// Ignore when no TransformerFactory implementation is available
+			}
 		}
 		this.messageConverters.add(new AllEncompassingFormHttpMessageConverter());
 	}
@@ -402,7 +424,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 	 * processing thread has exited and ends when the request is dispatched again
 	 * for further processing of the concurrently produced result.
 	 * <p>If this value is not set, the default timeout of the underlying
-	 * implementation is used, e.g. 10 seconds on Tomcat with Servlet 3.
+	 * implementation is used.
 	 * @param timeout the timeout value in milliseconds
 	 */
 	public void setAsyncRequestTimeout(long timeout) {
@@ -566,7 +588,6 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		}
 
 		List<ControllerAdviceBean> adviceBeans = ControllerAdviceBean.findAnnotatedBeans(getApplicationContext());
-		AnnotationAwareOrderComparator.sort(adviceBeans);
 
 		List<Object> requestResponseBodyAdviceBeans = new ArrayList<>();
 
@@ -583,10 +604,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 			if (!binderMethods.isEmpty()) {
 				this.initBinderAdviceCache.put(adviceBean, binderMethods);
 			}
-			if (RequestBodyAdvice.class.isAssignableFrom(beanType)) {
-				requestResponseBodyAdviceBeans.add(adviceBean);
-			}
-			if (ResponseBodyAdvice.class.isAssignableFrom(beanType)) {
+			if (RequestBodyAdvice.class.isAssignableFrom(beanType) || ResponseBodyAdvice.class.isAssignableFrom(beanType)) {
 				requestResponseBodyAdviceBeans.add(adviceBean);
 			}
 		}
@@ -605,7 +623,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 			}
 			else {
 				logger.debug("ControllerAdvice beans: " + modelSize + " @ModelAttribute, " + binderSize +
-						" @InitBinder, " + reqCount + " RequestBodyAdvice, " + resCount + ", ResponseBodyAdvice");
+						" @InitBinder, " + reqCount + " RequestBodyAdvice, " + resCount + " ResponseBodyAdvice");
 			}
 		}
 	}
@@ -624,7 +642,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 	 * and custom resolvers provided via {@link #setCustomArgumentResolvers}.
 	 */
 	private List<HandlerMethodArgumentResolver> getDefaultArgumentResolvers() {
-		List<HandlerMethodArgumentResolver> resolvers = new ArrayList<>();
+		List<HandlerMethodArgumentResolver> resolvers = new ArrayList<>(30);
 
 		// Annotation-based argument resolution
 		resolvers.add(new RequestParamMethodArgumentResolver(getBeanFactory(), false));
@@ -653,6 +671,9 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		resolvers.add(new ErrorsMethodArgumentResolver());
 		resolvers.add(new SessionStatusMethodArgumentResolver());
 		resolvers.add(new UriComponentsBuilderMethodArgumentResolver());
+		if (KotlinDetector.isKotlinPresent()) {
+			resolvers.add(new ContinuationHandlerMethodArgumentResolver());
+		}
 
 		// Custom arguments
 		if (getCustomArgumentResolvers() != null) {
@@ -660,6 +681,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		}
 
 		// Catch-all
+		resolvers.add(new PrincipalMethodArgumentResolver());
 		resolvers.add(new RequestParamMethodArgumentResolver(getBeanFactory(), true));
 		resolvers.add(new ServletModelAttributeMethodProcessor(true));
 
@@ -671,7 +693,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 	 * methods including built-in and custom resolvers.
 	 */
 	private List<HandlerMethodArgumentResolver> getDefaultInitBinderArgumentResolvers() {
-		List<HandlerMethodArgumentResolver> resolvers = new ArrayList<>();
+		List<HandlerMethodArgumentResolver> resolvers = new ArrayList<>(20);
 
 		// Annotation-based argument resolution
 		resolvers.add(new RequestParamMethodArgumentResolver(getBeanFactory(), false));
@@ -694,6 +716,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		}
 
 		// Catch-all
+		resolvers.add(new PrincipalMethodArgumentResolver());
 		resolvers.add(new RequestParamMethodArgumentResolver(getBeanFactory(), true));
 
 		return resolvers;
@@ -704,7 +727,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 	 * custom handlers provided via {@link #setReturnValueHandlers}.
 	 */
 	private List<HandlerMethodReturnValueHandler> getDefaultReturnValueHandlers() {
-		List<HandlerMethodReturnValueHandler> handlers = new ArrayList<>();
+		List<HandlerMethodReturnValueHandler> handlers = new ArrayList<>(20);
 
 		// Single-purpose return value types
 		handlers.add(new ModelAndViewMethodReturnValueHandler());
@@ -721,7 +744,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		handlers.add(new AsyncTaskMethodReturnValueHandler(this.beanFactory));
 
 		// Annotation-based return value types
-		handlers.add(new ModelAttributeMethodProcessor(false));
+		handlers.add(new ServletModelAttributeMethodProcessor(false));
 		handlers.add(new RequestResponseBodyMethodProcessor(getMessageConverters(),
 				this.contentNegotiationManager, this.requestResponseBodyAdvice));
 
@@ -739,7 +762,7 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 			handlers.add(new ModelAndViewResolverMethodReturnValueHandler(getModelAndViewResolvers()));
 		}
 		else {
-			handlers.add(new ModelAttributeMethodProcessor(true));
+			handlers.add(new ServletModelAttributeMethodProcessor(true));
 		}
 
 		return handlers;
@@ -813,18 +836,9 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 	 * (never {@code null}).
 	 */
 	private SessionAttributesHandler getSessionAttributesHandler(HandlerMethod handlerMethod) {
-		Class<?> handlerType = handlerMethod.getBeanType();
-		SessionAttributesHandler sessionAttrHandler = this.sessionAttributesHandlerCache.get(handlerType);
-		if (sessionAttrHandler == null) {
-			synchronized (this.sessionAttributesHandlerCache) {
-				sessionAttrHandler = this.sessionAttributesHandlerCache.get(handlerType);
-				if (sessionAttrHandler == null) {
-					sessionAttrHandler = new SessionAttributesHandler(handlerType, this.sessionAttributeStore);
-					this.sessionAttributesHandlerCache.put(handlerType, sessionAttrHandler);
-				}
-			}
-		}
-		return sessionAttrHandler;
+		return this.sessionAttributesHandlerCache.computeIfAbsent(
+				handlerMethod.getBeanType(),
+				type -> new SessionAttributesHandler(type, this.sessionAttributeStore));
 	}
 
 	/**
@@ -870,10 +884,10 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 				Object result = asyncManager.getConcurrentResult();
 				mavContainer = (ModelAndViewContainer) asyncManager.getConcurrentResultContext()[0];
 				asyncManager.clearConcurrentResult();
-				if (logger.isDebugEnabled()) {
-					logger.debug("Resume with async result [" +
-							(result instanceof CharSequence ? "\"" + result + "\"" :  result) + "]");
-				}
+				LogFormatUtils.traceDebug(logger, traceOn -> {
+					String formatted = LogFormatUtils.formatValue(result, !traceOn);
+					return "Resume with async result [" + formatted + "]";
+				});
 				invocableMethod = invocableMethod.wrapConcurrentResult(result);
 			}
 
@@ -909,9 +923,9 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		}
 		List<InvocableHandlerMethod> attrMethods = new ArrayList<>();
 		// Global methods first
-		this.modelAttributeAdviceCache.forEach((clazz, methodSet) -> {
-			if (clazz.isApplicableToBeanType(handlerType)) {
-				Object bean = clazz.resolveBean();
+		this.modelAttributeAdviceCache.forEach((controllerAdviceBean, methodSet) -> {
+			if (controllerAdviceBean.isApplicableToBeanType(handlerType)) {
+				Object bean = controllerAdviceBean.resolveBean();
 				for (Method method : methodSet) {
 					attrMethods.add(createModelAttributeMethod(binderFactory, bean, method));
 				}
@@ -943,9 +957,9 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		}
 		List<InvocableHandlerMethod> initBinderMethods = new ArrayList<>();
 		// Global methods first
-		this.initBinderAdviceCache.forEach((clazz, methodSet) -> {
-			if (clazz.isApplicableToBeanType(handlerType)) {
-				Object bean = clazz.resolveBean();
+		this.initBinderAdviceCache.forEach((controllerAdviceBean, methodSet) -> {
+			if (controllerAdviceBean.isApplicableToBeanType(handlerType)) {
+				Object bean = controllerAdviceBean.resolveBean();
 				for (Method method : methodSet) {
 					initBinderMethods.add(createInitBinderMethod(bean, method));
 				}
@@ -1004,19 +1018,5 @@ public class RequestMappingHandlerAdapter extends AbstractHandlerMethodAdapter
 		}
 		return mav;
 	}
-
-
-	/**
-	 * MethodFilter that matches {@link InitBinder @InitBinder} methods.
-	 */
-	public static final MethodFilter INIT_BINDER_METHODS = method ->
-			AnnotationUtils.findAnnotation(method, InitBinder.class) != null;
-
-	/**
-	 * MethodFilter that matches {@link ModelAttribute @ModelAttribute} methods.
-	 */
-	public static final MethodFilter MODEL_ATTRIBUTE_METHODS = method ->
-			((AnnotationUtils.findAnnotation(method, RequestMapping.class) == null) &&
-			(AnnotationUtils.findAnnotation(method, ModelAttribute.class) != null));
 
 }

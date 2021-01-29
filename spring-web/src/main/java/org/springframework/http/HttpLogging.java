@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,12 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.http;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import org.springframework.util.log.LogUtils;
+import org.springframework.core.log.LogDelegateFactory;
 
 /**
  * Holds the shared logger named "org.springframework.web.HttpLogging" for HTTP
@@ -36,6 +37,7 @@ import org.springframework.util.log.LogUtils;
  *
  * @author Rossen Stoyanchev
  * @since 5.1
+ * @see LogDelegateFactory
  */
 public abstract class HttpLogging {
 
@@ -57,13 +59,13 @@ public abstract class HttpLogging {
 
 	/**
 	 * Wrap the given primary logger with a composite logger that delegates to
-	 * it or to the fallback logger "org.springframework.web.HttpLogging", if
-	 * the primary is not enabled.
+	 * it or to the fallback logger "org.springframework.web.HttpLogging",
+	 * if the primary is not enabled.
 	 * @param primaryLogger the primary logger to use
 	 * @return the resulting composite logger
 	 */
 	public static Log forLog(Log primaryLogger) {
-		return LogUtils.getCompositeLog(primaryLogger, fallbackLogger);
+		return LogDelegateFactory.getCompositeLog(primaryLogger, fallbackLogger);
 	}
 
 }

@@ -1,11 +1,11 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,7 @@
 
 package org.springframework.web.reactive.socket.server.support;
 
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.security.Principal;
 import java.util.Collections;
@@ -63,21 +64,24 @@ public class HandshakeWebSocketService implements WebSocketService, Lifecycle {
 	private static final Mono<Map<String, Object>> EMPTY_ATTRIBUTES = Mono.just(Collections.emptyMap());
 
 
-	private static final boolean tomcatPresent = ClassUtils.isPresent(
-			"org.apache.tomcat.websocket.server.WsHttpUpgradeHandler",
-			HandshakeWebSocketService.class.getClassLoader());
+	private static final boolean tomcatPresent;
 
-	private static final boolean jettyPresent = ClassUtils.isPresent(
-			"org.eclipse.jetty.websocket.server.WebSocketServerFactory",
-			HandshakeWebSocketService.class.getClassLoader());
+	private static final boolean jettyPresent;
 
-	private static final boolean undertowPresent = ClassUtils.isPresent(
-			"io.undertow.websockets.WebSocketProtocolHandshakeHandler",
-			HandshakeWebSocketService.class.getClassLoader());
+	private static final boolean jetty10Present;
 
-	private static final boolean reactorNettyPresent = ClassUtils.isPresent(
-			"reactor.netty.http.server.HttpServerResponse",
-			HandshakeWebSocketService.class.getClassLoader());
+	private static final boolean undertowPresent;
+
+	private static final boolean reactorNettyPresent;
+
+	static {
+		ClassLoader loader = HandshakeWebSocketService.class.getClassLoader();
+		tomcatPresent = ClassUtils.isPresent("org.apache.tomcat.websocket.server.WsHttpUpgradeHandler", loader);
+		jettyPresent = ClassUtils.isPresent("org.eclipse.jetty.websocket.server.WebSocketServerFactory", loader);
+		jetty10Present = ClassUtils.isPresent("org.eclipse.jetty.websocket.server.JettyWebSocketServerContainer", loader);
+		undertowPresent = ClassUtils.isPresent("io.undertow.websockets.WebSocketProtocolHandshakeHandler", loader);
+		reactorNettyPresent = ClassUtils.isPresent("reactor.netty.http.server.HttpServerResponse", loader);
+	}
 
 
 	protected static final Log logger = LogFactory.getLog(HandshakeWebSocketService.class);
@@ -88,7 +92,7 @@ public class HandshakeWebSocketService implements WebSocketService, Lifecycle {
 	@Nullable
 	private Predicate<String> sessionAttributePredicate;
 
-	private volatile boolean running = false;
+	private volatile boolean running;
 
 
 	/**
@@ -115,6 +119,9 @@ public class HandshakeWebSocketService implements WebSocketService, Lifecycle {
 		}
 		else if (jettyPresent) {
 			className = "JettyRequestUpgradeStrategy";
+		}
+		else if (jetty10Present) {
+			className = "Jetty10RequestUpgradeStrategy";
 		}
 		else if (undertowPresent) {
 			className = "UndertowRequestUpgradeStrategy";
@@ -271,10 +278,14 @@ public class HandshakeWebSocketService implements WebSocketService, Lifecycle {
 			@Nullable String protocol, Map<String, Object> attributes) {
 
 		URI uri = request.getURI();
-		HttpHeaders headers = request.getHeaders();
+		// Copy request headers, as they might be pooled and recycled by
+		// the server implementation once the handshake HTTP exchange is done.
+		HttpHeaders headers = new HttpHeaders();
+		headers.addAll(request.getHeaders());
 		Mono<Principal> principal = exchange.getPrincipal();
 		String logPrefix = exchange.getLogPrefix();
-		return new HandshakeInfo(uri, headers, principal, protocol, attributes, logPrefix);
+		InetSocketAddress remoteAddress = request.getRemoteAddress();
+		return new HandshakeInfo(uri, headers, principal, protocol, remoteAddress, attributes, logPrefix);
 	}
 
 }
